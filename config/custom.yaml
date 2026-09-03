@@ -20,8 +20,12 @@ llm:
 
 source:
   arxiv:
-    category: ["cs.AI","cs.CV","cs.LG","cs.CL"]
+    # LLM inference, systems, and ML. Cross-lists catch systems papers
+    # primarily announced in a neighbouring arXiv category.
+    category: ["cs.LG", "cs.AI", "cs.DC"]
+    include_cross_list: true
 
 executor:
   debug: ${oc.env:DEBUG,null}
+  max_paper_num: 20
   source: ['arxiv']
