@@ -2,8 +2,9 @@ name: Send weekly LLM inference papers
 on:
   workflow_dispatch:
   schedule:
-    # 09:00 every Monday in China Standard Time (UTC+8).
-    - cron: '0 1 * * 1'
+    # 09:17 every Monday in China Standard Time (UTC+8).
+    # Avoid the top-of-hour congestion that can delay scheduled GitHub runs.
+    - cron: '17 1 * * 1'
 
 jobs:
   calculate-and-send:
