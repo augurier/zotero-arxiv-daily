@@ -24,6 +24,7 @@ source:
     # primarily announced in a neighbouring arXiv category.
     category: ["cs.LG", "cs.AI", "cs.DC"]
     include_cross_list: true
+    max_candidates: 50
 
 executor:
   debug: ${oc.env:DEBUG,null}

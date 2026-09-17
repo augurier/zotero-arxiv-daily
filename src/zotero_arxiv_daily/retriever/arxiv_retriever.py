@@ -114,7 +114,10 @@ class ArxivRetriever(BaseRetriever):
             raise ValueError("category must be specified for arxiv.")
 
     def _retrieve_raw_papers(self) -> list[ArxivResult]:
-        client = arxiv.Client(num_retries=10, delay_seconds=10)
+        # Retry at this layer so that a temporary arXiv outage affects only a
+        # small batch, rather than making the whole digest fail after the
+        # client's long internal retry cycle.
+        client = arxiv.Client(num_retries=1, delay_seconds=5)
         query = '+'.join(self.config.source.arxiv.category)
         include_cross_list = self.config.source.arxiv.get("include_cross_list", False)
         # Get the latest paper from arxiv rss feed
@@ -130,28 +133,45 @@ class ArxivRetriever(BaseRetriever):
         ]
         if self.config.executor.debug:
             all_paper_ids = all_paper_ids[:10]
+        else:
+            max_candidates = self.config.source.arxiv.get("max_candidates", None)
+            if max_candidates is not None:
+                all_paper_ids = all_paper_ids[:max_candidates]
 
         # Get full information of each paper from arxiv api
         bar = tqdm(total=len(all_paper_ids))
-        max_batch_retries = 5
-        batch_retry_delay = 30
-        for i in range(0, len(all_paper_ids), 20):
-            search = arxiv.Search(id_list=all_paper_ids[i:i + 20])
+        max_batch_retries = 4
+        batch_retry_delay = 20
+        retryable_statuses = {429, 500, 502, 503, 504}
+        batch_size = 10
+        for i in range(0, len(all_paper_ids), batch_size):
+            batch_index = i // batch_size
+            search = arxiv.Search(id_list=all_paper_ids[i:i + batch_size])
+            batch_completed = False
             for attempt in range(max_batch_retries):
                 try:
                     batch = list(client.results(search))
                     bar.update(len(batch))
                     raw_papers.extend(batch)
+                    batch_completed = True
                     break
                 except arxiv.HTTPError as exc:
-                    if exc.status == 429 and attempt < max_batch_retries - 1:
+                    if exc.status in retryable_statuses and attempt < max_batch_retries - 1:
                         wait = batch_retry_delay * (attempt + 1)
-                        logger.warning(f"arXiv API 429 on batch {i // 20}, retry {attempt + 1}/{max_batch_retries} in {wait}s")
+                        logger.warning(
+                            f"arXiv API {exc.status} on batch {batch_index}, "
+                            f"retry {attempt + 1}/{max_batch_retries} in {wait}s"
+                        )
                         sleep(wait)
                     else:
-                        raise
-            if i + 20 < len(all_paper_ids):
-                sleep(3)
+                        logger.warning(
+                            f"Skipping arXiv batch {batch_index} after {attempt + 1} attempts: {exc}"
+                        )
+                        break
+            if not batch_completed:
+                logger.warning(f"No metadata retrieved for arXiv batch {batch_index}")
+            if i + batch_size < len(all_paper_ids):
+                sleep(6)
         bar.close()
 
         return raw_papers
